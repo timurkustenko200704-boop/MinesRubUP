@@ -8,7 +8,7 @@ from flask import Flask
 TOKEN = os.environ.get('BOT_TOKEN')
 bot = telebot.TeleBot(TOKEN)
 
-# Веб-сервер для удержания порта на бесплатном тарифе Render
+# Веб-сервер для удержания порта на Render
 app = Flask('')
 
 
@@ -21,19 +21,17 @@ def run_web():
   app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 10000)))
 
 
-# Точный алгоритм генерации мин RubUP по стандарту Provably Fair
-def calculate_rubup_mines(server_seed, client_seed, nonce, mines_count=3):
-  grid = list(range(25))  # Клетки от 0 до 24 (сетка 5x5)
+# Точный расчет мин по сидам
+def calculate_mines(server_seed, client_seed, nonce, mines_count=3):
+  grid = list(range(25))
   mines = []
 
-  # По описанию игры: используется счетчик для шагов генерации
   for counter in range(mines_count):
     message = f'{client_seed}:{nonce}:{counter}'
     h = hmac.new(
         server_seed.encode('utf-8'), message.encode('utf-8'), hashlib.sha256
     ).digest()
 
-    # Берем первые 4 байта хэша как число
     num = int.from_bytes(h[:4], 'big')
     index = num % len(grid)
 
@@ -47,44 +45,22 @@ def calculate_rubup_mines(server_seed, client_seed, nonce, mines_count=3):
 def send_welcome(message):
   bot.reply_to(
       message,
-      '💣 **Бот анализа RubUP Mines активирован!**\n\n'
-      'Отправь команду /test49, /test50 или /test51, чтобы проверить расчет'
-      ' для твоих реальных раундов со скриншотов.',
+      '💣 **Бот анализа RubUP Mines активен!**\n\n'
+      'Чтобы проверить раунд №52 со скриншота, отправь команду:\n`/test52`\n\n'
+      'Или отправь данные в формате:\n`сид_сервера | сид_клиента | nonce`',
       parse_mode='Markdown',
   )
 
 
-# Проверка раунда 49 (со скриншота)
-@bot.message_handler(commands=['test49'])
-def test_round_49(message):
-  s_seed = '02ad37e579271e9f274ca51b8ea3992f'
+@bot.message_handler(commands=['test52'])
+def test_round_52(message):
+  s_seed = '10c1844623a19bc7317bccc3beb6a178'
   c_seed = '56798c391ff1b5fbeb9e638e6fcb23e3'
-  nonce = 49
-  run_test_calculation(message, s_seed, c_seed, nonce)
+  nonce = 52
 
+  mines = calculate_mines(s_seed, c_seed, nonce, mines_count=3)
 
-# Проверка раунда 50 (со скриншота)
-@bot.message_handler(commands=['test50'])
-def test_round_50(message):
-  s_seed = '266288cd8947bfb1448f6f6ef0800b9d'
-  c_seed = '56798c391ff1b5fbeb9e638e6fcb23e3'
-  nonce = 50
-  run_test_calculation(message, s_seed, c_seed, nonce)
-
-
-# Проверка раунда 51 (со скриншота)
-@bot.message_handler(commands=['test51'])
-def test_round_51(message):
-  s_seed = 'b5f4273c5a2ef21fefacfe89ddb496b6'
-  c_seed = '56798c391ff1b5fbeb9e638e6fcb23e3'
-  nonce = 51
-  run_test_calculation(message, s_seed, c_seed, nonce)
-
-
-def run_test_calculation(message, s_seed, c_seed, nonce):
-  mines = calculate_rubup_mines(s_seed, c_seed, nonce, mines_count=3)
-
-  # Рисуем визуальную сетку 5x5 (индексы от 0 до 24)
+  # Рисуем сетку 5x5
   grid_visual = ''
   for i in range(25):
     if i in mines:
@@ -95,21 +71,49 @@ def run_test_calculation(message, s_seed, c_seed, nonce):
       grid_visual += '\n'
 
   response = (
-      f'📊 **Результат проверки раунда (Nonce {nonce}):**\n\n'
-      f'Точные индексы мин: `{mines}`\n\n'
+      f'📊 **Проверка раунда 52:**\n\n'
+      f'Координаты мин (индексы): `{mines}`\n'
+      f'*(На скриншоте: клетки 6, 8, 20)*\n\n'
       f'Визуализация сетки ($5 \\times 5$):\n{grid_visual}'
   )
   bot.reply_to(message, response, parse_mode='Markdown')
 
 
 @bot.message_handler(func=lambda message: True)
-def handle_other(message):
-  bot.reply_to(
-      message,
-      'Используй команды `/test49`, `/test50` или `/test51` для проверки'
-      ' реальных раундов.',
-      parse_mode='Markdown',
-  )
+def handle_custom_input(message):
+  try:
+    # Ожидаем формат: server_seed | client_seed | nonce
+    parts = [p.strip() for p in message.text.split('|')]
+    if len(parts) == 3:
+      s_seed = parts[0]
+      c_seed = parts[1]
+      nonce = int(parts[2])
+
+      mines = calculate_mines(s_seed, c_seed, nonce, mines_count=3)
+
+      grid_visual = ''
+      for i in range(25):
+        if i in mines:
+          grid_visual += '💣 '
+        else:
+          grid_visual += '🟩 '
+        if (i + 1) % 5 == 0:
+          grid_visual += '\n'
+
+      bot.reply_to(
+          message,
+          f'📊 **Расчет для раунда (Nonce {nonce}):**\n\n'
+          f'Индексы мин: `{mines}`\n\n{grid_visual}',
+          parse_mode='Markdown',
+      )
+    else:
+      bot.reply_to(
+          message,
+          'Неверный формат. Отправь данные через черточку (|) или команду'
+          ' `/test52`.',
+      )
+  except Exception as e:
+    bot.reply_to(message, f'Ошибка обработки: {e}')
 
 
 if __name__ == '__main__':
